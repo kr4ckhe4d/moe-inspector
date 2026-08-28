@@ -116,7 +116,7 @@
 
 <header>
   <h1>MoE <span>Inspector</span></h1>
-  <input id="model" value="hf-internal-testing/tiny-random-MixtralForCausalLM" spellcheck="false">
+  <input id="model" value="allenai/OLMoE-1B-7B-0924-Instruct" spellcheck="false">
   <select id="device"><option value="auto">auto</option><option>mps</option><option>cpu</option><option>cuda</option></select>
   <select id="dtype"><option value="auto">auto</option><option>float16</option><option>bfloat16</option><option>float32</option></select>
   <button id="load" class="primary">Load</button>
@@ -171,9 +171,8 @@
     <div id="chipbar" class="chipbar" style="display:none"></div>
     <div id="grid"><div class="empty">Load a model to see its expert map.<br><br>
       Small MoE models that fit in 16&nbsp;GB:<br>
-      <code>ibm-granite/granite-3.1-3b-a800m-instruct</code><br>
-      <code>allenai/OLMoE-1B-7B-0924-Instruct</code> (tight)<br>
-      <code>hf-internal-testing/tiny-random-MixtralForCausalLM</code> (wiring test)
+      <code>allenai/OLMoE-1B-7B-0924-Instruct</code> (12.9&nbsp;GiB in bf16)<br>
+      <code>ibm-granite/granite-3.1-3b-a800m-instruct</code> (6.2&nbsp;GiB in bf16)
     </div></div>
   </section>
 </main>
