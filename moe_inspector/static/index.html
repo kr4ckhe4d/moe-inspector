@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoE Inspector</title>
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161a21; --panel-2: #1d222b; --line: #2a313d;
+    --ink: #e6e9ef; --dim: #8b95a6; --accent: #7c9cff; --hot: #ffb454;
+    --off: #ff5f6b; --ok: #4ade80; --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif; height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; gap: 10px; align-items: center; padding: 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  h1 { font-size: 15px; margin: 0 14px 0 0; letter-spacing: .3px; white-space: nowrap; }
+  h1 span { color: var(--accent); }
+  input, select, textarea, button {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 9px; font-size: 13px; font-family: inherit;
+  }
+  input:focus, textarea:focus, select:focus { outline: 1px solid var(--accent); }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #0b0e14; border-color: var(--accent); font-weight: 600; }
+  #model { width: 300px; font-family: var(--mono); font-size: 12px; }
+  #status { font-size: 12px; color: var(--dim); margin-left: auto; text-align: right; }
+  #status b { color: var(--ink); font-weight: 500; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); margin-right: 6px; }
+  .dot.ready { background: var(--ok); } .dot.loading { background: var(--hot); animation: pulse 1s infinite; }
+  .dot.error { background: var(--off); }
+  @keyframes pulse { 50% { opacity: .3; } }
+
+  main { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 330px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--panel);
+    padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+  }
+  section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+            color: var(--dim); margin-bottom: 5px; }
+  textarea { width: 100%; resize: vertical; min-height: 90px; font-family: var(--mono); font-size: 12.5px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { min-width: 0; }
+  .grow { flex: 1; }
+  .out {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 9px;
+    font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow-y: auto; min-height: 40px;
+  }
+  .out.base { border-left: 2px solid var(--dim); color: var(--dim); }
+  .meta { font-size: 11px; color: var(--dim); font-family: var(--mono); }
+
+  .toolbar {
+    display: flex; gap: 8px; align-items: center; padding: 9px 14px;
+    border-bottom: 1px solid var(--line); flex-wrap: wrap; background: var(--panel);
+  }
+  .toolbar .sep { width: 1px; height: 20px; background: var(--line); }
+  .chipbar {
+    padding: 8px 14px; border-bottom: 1px solid var(--line); max-height: 96px; overflow-y: auto;
+    display: flex; flex-wrap: wrap; gap: 3px; align-items: flex-start;
+  }
+  .tok {
+    font-family: var(--mono); font-size: 11.5px; padding: 1px 4px; border-radius: 3px;
+    background: var(--panel-2); border: 1px solid transparent; cursor: pointer; white-space: pre;
+  }
+  .tok.gen { background: #23304a; color: #cddcff; }
+  .tok.sel { border-color: var(--hot); background: #3a2e18; color: var(--hot); }
+  .tok:hover { border-color: var(--accent); }
+
+  #grid { flex: 1; overflow: auto; padding: 12px 14px 24px; }
+  .lrow { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .lbl {
+    width: 78px; flex-shrink: 0; font-family: var(--mono); font-size: 11px; color: var(--dim);
+    display: flex; gap: 4px; align-items: center;
+  }
+  .lbl .zz {
+    border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; cursor: pointer;
+    background: var(--panel-2); font-size: 10px; color: var(--dim);
+  }
+  .lbl .zz.on { background: var(--off); color: #1a0b0d; border-color: var(--off); font-weight: 700; }
+  .cells { display: grid; gap: 2px; flex: 1; }
+  .cell {
+    height: 15px; border-radius: 2px; background: #1a1f28; cursor: pointer; position: relative;
+    border: 1px solid transparent;
+  }
+  .cell:hover { border-color: var(--ink); }
+  .cell.off::after {
+    content: ""; position: absolute; inset: 0; border-radius: 2px;
+    background: repeating-linear-gradient(45deg, var(--off) 0 2px, transparent 2px 4px);
+    box-shadow: inset 0 0 0 1px var(--off);
+  }
+  .lrow.asleep .cells { opacity: .22; }
+  .lrow.asleep .lbl { color: var(--off); }
+
+  #tip {
+    position: fixed; pointer-events: none; background: #000d; border: 1px solid var(--line);
+    border-radius: 5px; padding: 5px 8px; font-family: var(--mono); font-size: 11.5px;
+    z-index: 10; display: none; white-space: pre;
+  }
+  .legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+  .ramp { width: 90px; height: 9px; border-radius: 3px;
+          background: linear-gradient(90deg, #1a1f28, #2c3a63, #4a5ec0, #7c9cff, #ffb454); }
+  .empty { color: var(--dim); padding: 40px; text-align: center; font-size: 13px; }
+  .note { font-size: 11px; color: var(--hot); font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MoE <span>Inspector</span></h1>
+  <input id="model" value="hf-internal-testing/tiny-random-MixtralForCausalLM" spellcheck="false">
+  <select id="device"><option value="auto">auto</option><option>mps</option><option>cpu</option><option>cuda</option></select>
+  <select id="dtype"><option value="auto">auto</option><option>float16</option><option>bfloat16</option><option>float32</option></select>
+  <button id="load" class="primary">Load</button>
+  <div id="status"><span class="dot"></span>no model</div>
+</header>
+
+<main>
+  <aside>
+    <div>
+      <label class="f">Prompt</label>
+      <textarea id="prompt">Explain what a mixture-of-experts layer does, in one sentence.</textarea>
+    </div>
+    <div class="row">
+      <div class="grow"><label class="f">Max tokens</label><input id="maxnew" type="number" value="48" min="1" max="512" class="grow" style="width:100%"></div>
+      <div class="grow"><label class="f">Temp</label><input id="temp" type="number" value="0" min="0" max="2" step="0.1" style="width:100%"></div>
+    </div>
+    <div class="row" style="font-size:12px;color:var(--dim)">
+      <label><input type="checkbox" id="chat" checked> chat template</label>
+      <label><input type="checkbox" id="compare"> compare vs baseline</label>
+    </div>
+    <button id="run" class="primary" disabled>Run</button>
+    <div>
+      <label class="f">Output <span id="outmeta" class="meta"></span></label>
+      <div id="out" class="out"></div>
+    </div>
+    <div id="basewrap" style="display:none">
+      <label class="f">Baseline (no ablation)</label>
+      <div id="base" class="out base"></div>
+    </div>
+    <div id="notes"></div>
+  </aside>
+
+  <section>
+    <div class="toolbar">
+      <label class="f" style="margin:0">Metric</label>
+      <select id="metric"><option value="count">routing share</option><option value="weight">mean weight</option></select>
+      <div class="sep"></div>
+      <label class="f" style="margin:0">Ablation</label>
+      <select id="mode">
+        <option value="reroute">reroute (expert unreachable)</option>
+        <option value="silence">silence (expert outputs zero)</option>
+      </select>
+      <div class="sep"></div>
+      <button id="clear">Clear mask</button>
+      <button id="invert">Invert</button>
+      <button id="keepbtn">Keep top <input id="keepn" type="number" value="4" min="1" style="width:44px;padding:1px 3px"> / layer</button>
+      <button id="export">Export</button>
+      <div class="sep"></div>
+      <span id="maskinfo" class="meta"></span>
+      <div class="legend" style="margin-left:auto"><span>cold</span><div class="ramp"></div><span>hot</span></div>
+    </div>
+    <div id="chipbar" class="chipbar" style="display:none"></div>
+    <div id="grid"><div class="empty">Load a model to see its expert map.<br><br>
+      Small MoE models that fit in 16&nbsp;GB:<br>
+      <code>ibm-granite/granite-3.1-3b-a800m-instruct</code><br>
+      <code>allenai/OLMoE-1B-7B-0924-Instruct</code> (tight)<br>
+      <code>hf-internal-testing/tiny-random-MixtralForCausalLM</code> (wiring test)
+    </div></div>
+  </section>
+</main>
+<div id="tip"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let layers = [], trace = null, weights = null, tokens = [];
+let disabled = new Map();      // layer -> Set(expert)
+let sleeping = new Set();
+let selTok = null;             // Set of token indices, or null = all
+let lastAnchor = null, awaitingLoad = false;
+
+const api = async (path, body) => {
+  const r = await fetch(path, body ? {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+  } : {});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+};
+
+/* ---------------------------------------------------------------- status */
+function renderStatus(s) {
+  const dot = `<span class="dot ${s.state}"></span>`;
+  const head = s.model_id ? `<b>${s.model_id}</b> · ${s.device}/${s.dtype}<br>` : "";
+  $("#status").innerHTML = dot + head + (s.message || s.state);
+  $("#run").disabled = s.state !== "ready";
+  $("#load").disabled = s.state === "loading";
+}
+
+async function poll() {
+  const s = await api("/api/status");
+  renderStatus(s);
+  if (s.state === "ready" && JSON.stringify(s.layers.map(l => l.block_path)) !== JSON.stringify(layers.map(l => l.block_path))) {
+    layers = s.layers; disabled = new Map(); sleeping = new Set();
+    trace = weights = null; tokens = []; selTok = null;
+    $("#chipbar").style.display = "none";
+    buildGrid(); renderNotes();
+  }
+  if (s.state === "loading" || (awaitingLoad && s.state === "idle")) setTimeout(poll, 1200);
+  if (s.state === "ready" || s.state === "error") awaitingLoad = false;
+}
+
+function renderNotes() {
+  const seen = new Set(), out = [];
+  layers.forEach(l => l.notes.forEach(n => { if (!seen.has(n)) { seen.add(n); out.push(n); } }));
+  $("#notes").innerHTML = out.map(n => `<div class="note">⚠ ${n}</div>`).join("");
+}
+
+/* ------------------------------------------------------------------ grid */
+function buildGrid() {
+  const g = $("#grid");
+  if (!layers.length) { g.innerHTML = '<div class="empty">No MoE layers.</div>'; return; }
+  g.innerHTML = "";
+  layers.forEach(l => {
+    const row = document.createElement("div");
+    row.className = "lrow"; row.dataset.layer = l.index;
+    const zz = l.can_sleep ? `<span class="zz" data-sleep="${l.index}" title="put whole layer to sleep">z</span>` : "";
+    row.innerHTML = `<div class="lbl">${zz}<span>L${String(l.index).padStart(2, "0")}</span></div>`;
+    const cells = document.createElement("div");
+    cells.className = "cells";
+    cells.style.gridTemplateColumns = `repeat(${l.num_experts}, minmax(6px, 1fr))`;
+    for (let e = 0; e < l.num_experts; e++) {
+      const c = document.createElement("div");
+      c.className = "cell"; c.dataset.layer = l.index; c.dataset.expert = e;
+      cells.appendChild(c);
+    }
+    row.appendChild(cells);
+    g.appendChild(row);
+  });
+  paint();
+}
+
+/* Aggregate the trace over the selected tokens: stats[layer][expert]. */
+function computeStats() {
+  if (!trace) return null;
+  const idx = selTok ? [...selTok] : null;
+  return layers.map((l, li) => {
+    const rows = trace[li] || [], wrows = weights[li] || [];
+    const pick = idx || rows.map((_, i) => i);
+    const count = new Float64Array(l.num_experts), wsum = new Float64Array(l.num_experts);
+    let n = 0;
+    for (const t of pick) {
+      const r = rows[t]; if (!r) continue;
+      n++;
+      r.forEach((e, k) => { count[e]++; wsum[e] += (wrows[t] || [])[k] || 0; });
+    }
+    return {count, wsum, n};
+  });
+}
+
+function ramp(v) {                       // 0..1 -> colour
+  if (v <= 0) return "#1a1f28";
+  const stops = [[26,31,40],[44,58,99],[74,94,192],[124,156,255],[255,180,84]];
+  const x = Math.min(1, v) * (stops.length - 1), i = Math.floor(x), f = x - i;
+  const a = stops[i], b = stops[Math.min(i + 1, stops.length - 1)];
+  return `rgb(${a.map((c, k) => Math.round(c + (b[k] - c) * f)).join(",")})`;
+}
+
+function paint() {
+  const stats = computeStats();
+  const metric = $("#metric").value;
+  document.querySelectorAll(".lrow").forEach(row => {
+    const li = +row.dataset.layer;
+    row.classList.toggle("asleep", sleeping.has(li));
+    row.querySelector(".zz")?.classList.toggle("on", sleeping.has(li));
+    const off = disabled.get(li) || new Set();
+    const s = stats ? stats[li] : null;
+    let max = 0;
+    if (s) for (let e = 0; e < s.count.length; e++)
+      max = Math.max(max, metric === "count" ? s.count[e] : s.wsum[e]);
+    row.querySelectorAll(".cell").forEach(c => {
+      const e = +c.dataset.expert;
+      c.classList.toggle("off", off.has(e));
+      const raw = s ? (metric === "count" ? s.count[e] : s.wsum[e]) : 0;
+      c.style.background = ramp(max ? raw / max : 0);
+    });
+  });
+  const nOff = [...disabled.values()].reduce((a, s) => a + s.size, 0);
+  const total = layers.reduce((a, l) => a + l.num_experts, 0);
+  $("#maskinfo").textContent =
+    `${nOff}/${total} experts off · ${sleeping.size} layers asleep` +
+    (selTok ? ` · ${selTok.size} token(s) selected` : "");
+}
+
+/* --------------------------------------------------------------- editing */
+let painting = false, paintTo = true;
+$("#grid").addEventListener("mousedown", e => {
+  const sleep = e.target.closest("[data-sleep]");
+  if (sleep) {
+    const li = +sleep.dataset.sleep;
+    sleeping.has(li) ? sleeping.delete(li) : sleeping.add(li);
+    paint(); pushMask(); return;
+  }
+  const cell = e.target.closest(".cell");
+  if (!cell) return;
+  const li = +cell.dataset.layer, ei = +cell.dataset.expert;
+  const set = disabled.get(li) || new Set();
+  paintTo = !set.has(ei); painting = true;
+  applyCell(li, ei, paintTo); paint(); e.preventDefault();
+});
+$("#grid").addEventListener("mouseover", e => {
+  const cell = e.target.closest(".cell"); if (!cell) return;
+  if (painting) { applyCell(+cell.dataset.layer, +cell.dataset.expert, paintTo); paint(); }
+  showTip(e, +cell.dataset.layer, +cell.dataset.expert);
+});
+$("#grid").addEventListener("mouseout", () => $("#tip").style.display = "none");
+addEventListener("mouseup", () => { if (painting) { painting = false; pushMask(); } });
+
+function applyCell(li, ei, off) {
+  const set = disabled.get(li) || new Set();
+  off ? set.add(ei) : set.delete(ei);
+  disabled.set(li, set);
+}
+
+const statsCache = () => computeStats();
+function showTip(ev, li, ei) {
+  const s = computeStats(), tip = $("#tip");
+  const l = layers[li];
+  let body = `layer ${li} · expert ${ei}\n${l.num_experts} experts, top-${l.top_k}`;
+  if (s && s[li].n) {
+    const st = s[li];
+    body += `\nrouted: ${st.count[ei]}/${st.n} tokens (${(100 * st.count[ei] / st.n).toFixed(1)}%)`;
+    body += `\nmean weight: ${(st.wsum[ei] / st.n).toFixed(3)}`;
+  }
+  if ((disabled.get(li) || new Set()).has(ei)) body += `\n— DISABLED (${$("#mode").value})`;
+  tip.textContent = body;
+  tip.style.display = "block";
+  tip.style.left = Math.min(ev.clientX + 14, innerWidth - 210) + "px";
+  tip.style.top = (ev.clientY + 16) + "px";
+}
+
+const pushMask = () => api("/api/mask", {
+  disabled: Object.fromEntries([...disabled].map(([k, v]) => [k, [...v]])),
+  sleeping: [...sleeping],
+  mode: $("#mode").value,
+});
+
+/* -------------------------------------------------------------- controls */
+$("#load").onclick = async () => {
+  awaitingLoad = true;
+  layers = [];
+  await api("/api/load", {model_id: $("#model").value.trim(), device: $("#device").value, dtype: $("#dtype").value});
+  poll();
+};
+$("#metric").onchange = paint;
+$("#mode").onchange = pushMask;
+$("#clear").onclick = () => { disabled = new Map(); sleeping = new Set(); paint(); pushMask(); };
+$("#invert").onclick = () => {
+  layers.forEach(l => {
+    const set = disabled.get(l.index) || new Set(), next = new Set();
+    for (let e = 0; e < l.num_experts; e++) if (!set.has(e)) next.add(e);
+    disabled.set(l.index, next);
+  });
+  paint(); pushMask();
+};
+$("#keepbtn").onclick = e => {
+  if (e.target.id === "keepn") return;
+  const s = computeStats();
+  if (!s) { alert("Run once first so there is routing data to rank experts by."); return; }
+  const k = Math.max(1, +$("#keepn").value);
+  layers.forEach((l, li) => {
+    const order = [...Array(l.num_experts).keys()].sort((a, b) => s[li].count[b] - s[li].count[a]);
+    disabled.set(li, new Set(order.slice(k)));
+  });
+  paint(); pushMask();
+};
+$("#export").onclick = () => {
+  const blob = new Blob([JSON.stringify({
+    model: $("#model").value, mode: $("#mode").value,
+    disabled: Object.fromEntries([...disabled].map(([k, v]) => [k, [...v]])),
+    sleeping: [...sleeping],
+  }, null, 2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "moe-mask.json"; a.click();
+};
+
+/* ------------------------------------------------------------------- run */
+$("#run").onclick = async () => {
+  $("#run").disabled = true; $("#out").textContent = "…";
+  try {
+    const r = await api("/api/generate", {
+      prompt: $("#prompt").value,
+      max_new_tokens: +$("#maxnew").value,
+      temperature: +$("#temp").value,
+      chat_template: $("#chat").checked,
+      compare: $("#compare").checked,
+    });
+    trace = r.trace; weights = r.weights; tokens = r.tokens; selTok = null;
+    $("#out").textContent = r.text || "(empty)";
+    $("#outmeta").textContent = `${r.new_tokens} tok · ${r.elapsed}s · ${r.tok_per_s} tok/s${r.ablated ? " · ablated" : ""}`;
+    $("#basewrap").style.display = r.baseline ? "block" : "none";
+    if (r.baseline) $("#base").textContent = r.baseline.text || "(empty)";
+    renderTokens();
+    paint();
+  } catch (err) {
+    $("#out").textContent = "error: " + err.message;
+  }
+  $("#run").disabled = false;
+};
+
+function renderTokens() {
+  const bar = $("#chipbar");
+  bar.style.display = tokens.length ? "flex" : "none";
+  bar.innerHTML = `<button id="alltok" style="padding:1px 6px;font-size:11px">all tokens</button>`;
+  tokens.forEach((t, i) => {
+    const el = document.createElement("span");
+    el.className = "tok" + (t.gen ? " gen" : "");
+    el.textContent = t.s.replace(/\n/g, "⏎") || "·";
+    el.dataset.i = i;
+    bar.appendChild(el);
+  });
+  $("#alltok").onclick = () => { selTok = null; renderSel(); paint(); };
+}
+
+$("#chipbar").addEventListener("click", e => {
+  const t = e.target.closest(".tok"); if (!t) return;
+  const i = +t.dataset.i;
+  if (e.shiftKey && lastAnchor !== null) {
+    selTok = selTok || new Set();
+    const [a, b] = [Math.min(i, lastAnchor), Math.max(i, lastAnchor)];
+    for (let k = a; k <= b; k++) selTok.add(k);
+  } else if (e.metaKey || e.ctrlKey) {
+    selTok = selTok || new Set();
+    selTok.has(i) ? selTok.delete(i) : selTok.add(i);
+    lastAnchor = i;
+  } else {
+    selTok = new Set([i]); lastAnchor = i;
+  }
+  if (selTok && !selTok.size) selTok = null;
+  renderSel(); paint();
+});
+
+function renderSel() {
+  document.querySelectorAll(".tok").forEach(el =>
+    el.classList.toggle("sel", !!selTok && selTok.has(+el.dataset.i)));
+}
+
+poll();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[project]
+name = "moe-inspector"
+version = "0.1.0"
+description = "Inspect MoE routing and put individual experts or layers to sleep"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "torch",
+    "transformers>=4.45",
+    "accelerate",
+    "fastapi",
+    "uvicorn[standard]",
+    "sentencepiece",
+    "protobuf",
+]
+
+[project.scripts]
+moe-inspector = "moe_inspector.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["moe_inspector*"]
+
+[tool.setuptools.package-data]
+moe_inspector = ["static/*"]
