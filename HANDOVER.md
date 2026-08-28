@@ -161,6 +161,9 @@ nothing — you are left on the CUDA wheel thinking you fixed it. Confirm with:
 The download is ~2 GB and took ~6 minutes. On an actual **NVIDIA** box none of
 this applies — PyPI's default wheel is already CUDA and `-e .` alone is enough.
 
+Then fetch the weights — `./scripts/download-model.sh` pulls OLMoE pinned to
+revision `7f1c97f4`, the exact weights the findings above were measured on.
+
 Then:
 
 ```bash

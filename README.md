@@ -30,6 +30,24 @@ for exactly that).
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e .
 ```
 
+Then fetch a checkpoint. Weights are not in this repo — OLMoE alone is 13 GB and
+GitHub caps files at 100 MB — so the script pulls them from the Hub instead:
+
+```bash
+./scripts/download-model.sh
+```
+
+That grabs [`allenai/OLMoE-1B-7B-0924-Instruct`](https://huggingface.co/allenai/OLMoE-1B-7B-0924-Instruct)
+(Apache-2.0, 13 GB) pinned to revision `7f1c97f4`, which is what the routing
+numbers in [HANDOVER.md](HANDOVER.md) were measured against. Pass a repo id and
+optional revision to get something else:
+
+```bash
+./scripts/download-model.sh ibm-granite/granite-3.1-3b-a800m-instruct
+```
+
+Re-running is cheap — cached files are skipped. Set `HF_TOKEN` for gated repos.
+
 ```bash
 PYTHONPATH=. .venv/bin/python -m moe_inspector.server --port 8731
 ```
