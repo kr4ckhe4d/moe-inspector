@@ -65,6 +65,46 @@ Then open http://127.0.0.1:8731 and load a model by its HF id. Pass
 Anything larger (Mixtral-8x7B, Qwen3-30B-A3B, DeepSeek-V3) works too if you
 have the RAM or a CUDA box; the code is architecture-agnostic.
 
+## Strata traces: a 177B model's routing, without loading it
+
+`/strata` shows the routing of Qwen3.8-Flash-Next (48 layers × 512 experts,
+top-10), which is far too big for transformers here. It runs under
+[Strata](https://github.com/Niko1221/Strata), whose engine can write every
+routed expert to a file (`--dump-routing FILE`), and whose VRAM expert cache is
+seeded from a ranked profile. This view reads both from disk. It needs no torch:
+`fastapi uvicorn numpy` is enough.
+
+![Code against prose: which experts each one routes to, sorted by code's usage](docs/strata-compare.png)
+
+*Code (A, blue) against English prose (B, orange), each layer sorted by code's
+usage. Code concentrates on a block of experts that prose barely touches; prose
+spreads over others. Mean per-layer Jensen-Shannon divergence 0.59 bits, top
+6,000 (layer, expert) pairs 17% shared. English against Chinese prose: 0.30 bits,
+61% shared.*
+
+![English prose routed through a cache seeded for code](docs/strata-cache.png)
+
+*The cost of the wrong cache: English prose against a VRAM cache seeded from
+code's routing (15,764 slots, what an R9700 holds). Red is routing that misses
+VRAM. The page predicts 53.8% hits; Strata measured 51.3% for the same setup
+(local-llm-benchmarks, `benchmarks/strata-expert-modes`).*
+
+- **A**: one trace as a heatmap. **A vs B**: the per-layer difference, with the
+  JS divergence per layer on the right.
+- **Expert cache**: pick a profile and a slot count (presets for a 9070 XT,
+  an R9700 and both cards). Experts outside the cache dim, the routed ones turn
+  red, and the right-hand bar is each layer's predicted VRAM hit rate.
+- **Playback**: a sliding window of positions through trace A.
+
+Traces and profiles are found in `/mnt/fast/strata-exp`,
+`~/code/local-llm-benchmarks/benchmarks/strata-expert-modes` and
+`~/code/Strata/data`; `--strata-dir DIR` (repeatable) replaces that list.
+
+```bash
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" numpy
+PYTHONPATH=. .venv/bin/python -m moe_inspector.server --port 8731   # then open /strata
+```
+
 ## The three ablation modes
 
 |  | what happens | use it for |

@@ -8,6 +8,7 @@ dependencies = [
     "transformers>=4.45",
     "accelerate",
     "fastapi",
+    "numpy",
     "uvicorn[standard]",
     "sentencepiece",
     "protobuf",

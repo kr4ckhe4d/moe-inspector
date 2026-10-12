@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoE Inspector · Strata</title>
+<style>
+  :root {
+    --bg: #0e1014; --panel: #161a21; --panel-2: #1d222b; --line: #2a313d;
+    --ink: #e6e9ef; --dim: #8b95a6; --accent: #7c9cff; --hot: #ffb454;
+    --off: #ff5f6b; --ok: #4ade80; --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif; height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; gap: 10px; align-items: center; padding: 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 15px; margin: 0 14px 0 0; letter-spacing: .3px; white-space: nowrap; }
+  h1 span { color: var(--accent); }
+  header a { color: var(--dim); font-size: 12px; margin-left: auto; }
+  select, input, button {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px; font-size: 13px; font-family: inherit;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #0b0e14; border-color: var(--accent); font-weight: 600; }
+  main { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 320px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--panel);
+    padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+  }
+  label.f { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+            color: var(--dim); margin-bottom: 5px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  aside select { width: 100%; }
+  .seg button { flex: 1; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .meta { font-size: 11.5px; color: var(--dim); font-family: var(--mono); }
+  .stat { font-family: var(--mono); font-size: 12px; line-height: 1.7; }
+  .stat b { color: var(--ink); font-weight: 600; }
+  .stat .a { color: #8fb0ff; } .stat .b { color: var(--hot); } .stat .miss { color: var(--off); }
+  section { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .toolbar {
+    display: flex; gap: 14px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line);
+    background: var(--panel); font-size: 12px; color: var(--dim); flex-wrap: wrap;
+  }
+  .legend { display: flex; align-items: center; gap: 6px; }
+  .ramp { width: 90px; height: 9px; border-radius: 3px; }
+  #wrap { flex: 1; overflow: auto; padding: 12px 14px 24px; position: relative; }
+  canvas { display: block; }
+  #tip {
+    position: fixed; pointer-events: none; background: #000d; border: 1px solid var(--line);
+    border-radius: 5px; padding: 5px 8px; font-family: var(--mono); font-size: 11.5px;
+    z-index: 10; display: none; white-space: pre;
+  }
+  .empty { color: var(--dim); padding: 40px; text-align: center; font-size: 13px; }
+  .hint { font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MoE <span>Inspector</span> · Strata</h1>
+  <span class="meta" id="model">Qwen3.8-Flash-Next routing, read from Strata's --dump-routing traces</span>
+  <a href="/">live model view →</a>
+</header>
+<main>
+  <aside>
+    <div>
+      <label class="f">Trace A</label>
+      <select id="ta"></select>
+    </div>
+    <div>
+      <label class="f">Trace B (compare)</label>
+      <select id="tb"><option value="">none</option></select>
+    </div>
+    <div>
+      <label class="f">View</label>
+      <div class="row seg"><button id="v-a" class="on">A</button><button id="v-ab">A vs B</button></div>
+    </div>
+    <div>
+      <label class="f">Expert order in each layer</label>
+      <div class="row seg"><button id="o-id" class="on">expert id</button><button id="o-use">by A's usage</button></div>
+    </div>
+    <div>
+      <label class="f">Expert cache (VRAM)</label>
+      <select id="prof"><option value="">no overlay</option></select>
+      <div style="margin-top:8px">
+        <input id="slots" type="range" min="0" max="24576" step="1" value="15764">
+        <div class="row" style="justify-content:space-between">
+          <span class="meta"><span id="slotn">15,764</span> of <span id="slotmax">24,576</span> slots</span>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <button data-slots="5989" class="preset">9070 XT</button>
+          <button data-slots="15764" class="preset">R9700</button>
+          <button data-slots="22143" class="preset">both cards</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <label class="f">Playback (trace A)</label>
+      <input id="pos" type="range" min="0" max="0" value="0">
+      <div class="row">
+        <button id="play">▶ play</button>
+        <span class="meta">window</span>
+        <input id="win" type="number" value="64" min="1" style="width:64px">
+        <button id="allpos">all</button>
+      </div>
+      <div class="meta" id="posinfo"></div>
+    </div>
+    <div class="stat" id="stats"></div>
+    <div class="hint">
+      Each row is a layer, each column one of its 512 experts, colour the share of that layer's routing.
+      Rows are normalised separately. With a cache overlay, experts outside the cache are dimmed and the
+      ones the trace still routes to show red: those are the lookups that miss VRAM.
+    </div>
+  </aside>
+  <section>
+    <div class="toolbar">
+      <div class="legend" id="legend"></div>
+      <span id="tbinfo"></span>
+    </div>
+    <div id="wrap"><div class="empty">Loading traces…</div></div>
+  </section>
+</main>
+<div id="tip"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async p => { const r = await fetch(p); if (!r.ok) throw new Error((await r.json()).detail || r.statusText); return r.json(); };
+const fmt = n => n.toLocaleString("en-US");
+
+let traces = {}, profiles = {};       // name -> loaded payload
+let A = null, B = null, P = null;     // current trace A, trace B, profile
+let view = "a", order = "id";
+let range = null;                     // [start, end) positions of A, or null = all
+let playing = null;
+const ROW = 12, GAP = 2, LBL = 46, BAR = 64;
+
+/* ------------------------------------------------------------- loading */
+function decode(t) {
+  const bin = atob(t.routed_b64), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  t.routed = new Uint16Array(u8.buffer);
+  delete t.routed_b64;
+  t.n_expert = Math.max(t.n_expert, 512);
+  t.full = counts(t, 0, t.positions);
+  return t;
+}
+async function trace(name) {
+  if (!name) return null;
+  if (!traces[name]) traces[name] = decode(await api(`/api/strata/trace?name=${encodeURIComponent(name)}`));
+  return traces[name];
+}
+async function profile(name) {
+  if (!name) return null;
+  if (!profiles[name]) profiles[name] = await api(`/api/strata/profile?name=${encodeURIComponent(name)}`);
+  return profiles[name];
+}
+
+/* counts[layer][expert] over positions [s, e) */
+function counts(t, s, e) {
+  const L = t.n_layer, K = t.k, E = t.n_expert, out = new Float64Array(L * E), r = t.routed;
+  for (let p = s; p < e; p++) {
+    const base = p * L * K;
+    for (let l = 0; l < L; l++) {
+      const o = base + l * K, row = l * E;
+      for (let k = 0; k < K; k++) out[row + r[o + k]]++;
+    }
+  }
+  return out;
+}
+
+/* ----------------------------------------------------------- analysis */
+const cur = () => A ? (range ? counts(A, range[0], range[1]) : A.full) : null;
+
+function resident() {      // Uint8Array(L*E): 1 when the profile's first `slots` pairs hold it
+  if (!P) return null;
+  const n = +$("#slots").value, res = new Uint8Array(P.rank.length);
+  for (let i = 0; i < P.rank.length; i++) res[i] = P.rank[i] < n ? 1 : 0;
+  return res;
+}
+function hitRate(c, res) {
+  let hit = 0, all = 0;
+  for (let i = 0; i < c.length; i++) { all += c[i]; if (res[i]) hit += c[i]; }
+  return all ? hit / all : 0;
+}
+function rowShares(c, l, E) {
+  let s = 0; for (let e = 0; e < E; e++) s += c[l * E + e];
+  const out = new Float64Array(E); if (s) for (let e = 0; e < E; e++) out[e] = c[l * E + e] / s;
+  return out;
+}
+function js(p, q) {         // Jensen-Shannon divergence in bits
+  let d = 0;
+  for (let i = 0; i < p.length; i++) {
+    const m = (p[i] + q[i]) / 2;
+    if (p[i]) d += 0.5 * p[i] * Math.log2(p[i] / m);
+    if (q[i]) d += 0.5 * q[i] * Math.log2(q[i] / m);
+  }
+  return d;
+}
+
+/* -------------------------------------------------------------- colour */
+const HEAT = [[26,31,40],[44,58,99],[74,94,192],[124,156,255],[255,180,84]];
+const MISS = [[26,31,40],[90,30,38],[180,50,62],[255,95,107]];
+const DIFF_A = [[26,31,40],[44,58,99],[90,120,230],[143,176,255]];
+const DIFF_B = [[26,31,40],[90,64,30],[200,130,50],[255,180,84]];
+function ramp(stops, v) {
+  if (v <= 0) return stops[0];
+  const x = Math.min(1, v) * (stops.length - 1), i = Math.floor(x), f = x - i;
+  const a = stops[i], b = stops[Math.min(i + 1, stops.length - 1)];
+  return a.map((c, k) => Math.round(c + (b[k] - c) * f));
+}
+const css = (rgb, a = 1) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
+const grad = stops => `linear-gradient(90deg, ${stops.map(s => css(s)).join(",")})`;
+
+/* --------------------------------------------------------------- draw */
+let canvas, ctx, cellW = 2, perm = null;
+
+function layout() {
+  const wrap = $("#wrap");
+  if (!canvas) { wrap.innerHTML = ""; canvas = document.createElement("canvas"); wrap.appendChild(canvas); ctx = canvas.getContext("2d"); }
+  const E = A.n_expert, L = A.n_layer;
+  const avail = Math.max(512, wrap.clientWidth - 28 - LBL - BAR - 12);
+  cellW = avail / E;
+  const w = LBL + avail + 12 + BAR, h = L * (ROW + GAP);
+  const dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  canvas.style.width = w + "px"; canvas.style.height = h + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function permutation() {     // per layer: column -> expert
+  const E = A.n_expert, L = A.n_layer;
+  if (order === "id") return null;
+  const out = [];
+  for (let l = 0; l < L; l++) {
+    const idx = [...Array(E).keys()];
+    idx.sort((x, y) => A.full[l * E + y] - A.full[l * E + x]);
+    out.push(idx);
+  }
+  return out;
+}
+
+function draw() {
+  if (!A) return;
+  layout();
+  const E = A.n_expert, L = A.n_layer, ca = cur(), res = resident();
+  const cb = view === "ab" && B ? B.full : null;
+  perm = permutation();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "11px ui-monospace, Menlo, monospace"; ctx.textBaseline = "middle";
+  const bars = [];
+  for (let l = 0; l < L; l++) {
+    const y = l * (ROW + GAP);
+    ctx.fillStyle = "#8b95a6"; ctx.fillText("L" + String(l).padStart(2, "0"), 4, y + ROW / 2);
+    const sa = rowShares(ca, l, E), sb = cb ? rowShares(cb, l, E) : null;
+    let max = 0;
+    for (let e = 0; e < E; e++) max = Math.max(max, sb ? Math.abs(sa[e] - sb[e]) : sa[e]);
+    for (let col = 0; col < E; col++) {
+      const e = perm ? perm[l][col] : col, i = l * E + e;
+      let rgb, alpha = 1;
+      if (sb) {
+        const v = max ? (sa[e] - sb[e]) / max : 0;
+        rgb = v >= 0 ? ramp(DIFF_A, v) : ramp(DIFF_B, -v);
+      } else {
+        const v = max ? sa[e] / max : 0;
+        rgb = res && !res[i] && v > 0 ? ramp(MISS, Math.sqrt(v)) : ramp(HEAT, v);
+      }
+      if (res && !res[i] && sb) alpha = 0.3;
+      ctx.fillStyle = css(rgb, alpha);
+      const x = LBL + col * cellW;
+      ctx.fillRect(x, y, Math.max(1, cellW - (cellW > 3 ? 0.6 : 0)), ROW);
+    }
+    // the right-hand bar: per-layer hit rate with an overlay, else JS divergence A vs B
+    let bv = null, label = "";
+    if (res) {
+      let h = 0, a = 0; for (let e = 0; e < E; e++) { a += ca[l * E + e]; if (res[l * E + e]) h += ca[l * E + e]; }
+      bv = a ? h / a : 0; label = (bv * 100).toFixed(0) + "%";
+    } else if (sb) {
+      bv = js(sa, sb); label = bv.toFixed(2);
+    }
+    if (bv !== null) {
+      const bx = LBL + E * cellW + 12;
+      ctx.fillStyle = "#1d222b"; ctx.fillRect(bx, y + 1, BAR - 30, ROW - 2);
+      ctx.fillStyle = res ? (bv > 0.9 ? "#4ade80" : bv > 0.7 ? "#ffb454" : "#ff5f6b") : "#7c9cff";
+      ctx.fillRect(bx, y + 1, (BAR - 30) * Math.min(1, res ? bv : bv / 1), ROW - 2);
+      ctx.fillStyle = "#8b95a6"; ctx.fillText(label, bx + BAR - 27, y + ROW / 2);
+      bars.push(bv);
+    }
+  }
+  legend();
+  stats(ca, res, cb);
+}
+
+function legend() {
+  const lg = $("#legend");
+  if (view === "ab" && B)
+    lg.innerHTML = `<span style="color:#8fb0ff">more in A</span><div class="ramp" style="background:${grad([...DIFF_A].reverse())}"></div>`
+      + `<div class="ramp" style="background:${grad(DIFF_B)}"></div><span style="color:var(--hot)">more in B</span>`;
+  else
+    lg.innerHTML = `<span>cold</span><div class="ramp" style="background:${grad(HEAT)}"></div><span>hot</span>`
+      + (P ? `<span style="margin-left:10px">outside cache</span><div class="ramp" style="background:${grad(MISS)}"></div><span style="color:var(--off)">miss</span>` : "");
+  $("#tbinfo").textContent = P ? "right: per-layer share of A's routing the cache holds"
+    : (view === "ab" && B ? "right: per-layer Jensen-Shannon divergence A vs B (bits)" : "");
+}
+
+function stats(ca, res, cb) {
+  const E = A.n_expert, L = A.n_layer;
+  const lines = [];
+  const pos = range ? range[1] - range[0] : A.positions;
+  lines.push(`<span class="a">A</span> <b>${A.name}</b> · ${fmt(pos)} positions`);
+  if (B) lines.push(`<span class="b">B</span> <b>${B.name}</b> · ${fmt(B.positions)} positions`);
+  if (res) {
+    lines.push(`cache <b>${P.name}</b>, ${fmt(+$("#slots").value)} slots`);
+    lines.push(`A hits VRAM: <b>${(hitRate(ca, res) * 100).toFixed(1)}%</b>`);
+    if (B) lines.push(`B hits VRAM: <b>${(hitRate(B.full, res) * 100).toFixed(1)}%</b>`);
+  }
+  if (B) {
+    let d = 0; for (let l = 0; l < L; l++) d += js(rowShares(ca, l, E), rowShares(B.full, l, E));
+    lines.push(`mean per-layer JS A vs B: <b>${(d / L).toFixed(3)}</b> bits`);
+    const top = (c, n) => new Set([...c.keys()].sort((x, y) => c[y] - c[x]).slice(0, n));
+    const n = 6000, ta = top(ca, n), tb = top(B.full, n);
+    let o = 0; for (const i of ta) if (tb.has(i)) o++;
+    lines.push(`top-${fmt(n)} pairs shared: <b>${(o / n * 100).toFixed(0)}%</b>`);
+  }
+  $("#stats").innerHTML = lines.join("<br>");
+}
+
+/* ------------------------------------------------------------ tooltip */
+document.addEventListener("mousemove", ev => {
+  const tip = $("#tip");
+  if (!canvas || ev.target !== canvas) { tip.style.display = "none"; return; }
+  const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const l = Math.floor(y / (ROW + GAP)), col = Math.floor((x - LBL) / cellW), E = A.n_expert;
+  if (l < 0 || l >= A.n_layer || col < 0 || col >= E) { tip.style.display = "none"; return; }
+  const e = perm ? perm[l][col] : col, i = l * E + e, ca = cur();
+  const sa = rowShares(ca, l, E)[e];
+  let body = `layer ${l} · expert ${e}\nA ${A.name}: ${(sa * 100).toFixed(2)}% of the layer (${fmt(ca[i])} routed)`;
+  if (B) body += `\nB ${B.name}: ${(rowShares(B.full, l, E)[e] * 100).toFixed(2)}% (${fmt(B.full[i])})`;
+  if (P) body += `\n${P.name} rank ${fmt(P.rank[i])}: ${P.rank[i] < +$("#slots").value ? "in VRAM" : "not cached"}`;
+  body += `\nuniform share: ${(100 / E).toFixed(2)}%`;
+  tip.textContent = body; tip.style.display = "block";
+  tip.style.left = Math.min(ev.clientX + 14, innerWidth - 300) + "px"; tip.style.top = (ev.clientY + 16) + "px";
+});
+
+/* ----------------------------------------------------------- playback */
+function setPos() {
+  const w = Math.max(1, +$("#win").value), s = +$("#pos").value;
+  range = [s, Math.min(A.positions, s + w)];
+  $("#posinfo").textContent = `positions ${fmt(range[0])}-${fmt(range[1])} of ${fmt(A.positions)}`;
+  draw();
+}
+$("#pos").oninput = setPos;
+$("#win").onchange = () => { if (range) setPos(); };
+$("#allpos").onclick = () => { stop(); range = null; $("#posinfo").textContent = `all ${fmt(A.positions)} positions`; draw(); };
+function stop() { if (playing) { clearInterval(playing); playing = null; $("#play").textContent = "▶ play"; } }
+$("#play").onclick = () => {
+  if (playing) return stop();
+  $("#play").textContent = "❚❚ pause";
+  playing = setInterval(() => {
+    const w = Math.max(1, +$("#win").value), next = +$("#pos").value + Math.max(1, Math.round(w / 8));
+    $("#pos").value = next + w > A.positions ? 0 : next;
+    setPos();
+  }, 80);
+};
+
+/* ------------------------------------------------------------ controls */
+const seg = (ids, set) => ids.forEach(id => $(id).onclick = () => { ids.forEach(j => $(j).classList.toggle("on", j === id)); set(id); draw(); });
+seg(["#v-a", "#v-ab"], id => view = id === "#v-ab" ? "ab" : "a");
+seg(["#o-id", "#o-use"], id => order = id === "#o-use" ? "use" : "id");
+$("#slots").oninput = () => { $("#slotn").textContent = fmt(+$("#slots").value); draw(); };
+document.querySelectorAll(".preset").forEach(b => b.onclick = () => { $("#slots").value = b.dataset.slots; $("#slots").oninput(); });
+
+$("#ta").onchange = async () => {
+  stop(); range = null; A = await trace($("#ta").value);
+  $("#pos").max = Math.max(0, A.positions - 1); $("#pos").value = 0;
+  $("#posinfo").textContent = `all ${fmt(A.positions)} positions`;
+  draw();
+};
+$("#tb").onchange = async () => {
+  B = await trace($("#tb").value);
+  if (B && view !== "ab") $("#v-ab").click(); else draw();
+};
+$("#prof").onchange = async () => {
+  P = await profile($("#prof").value);
+  if (P) {
+    const max = P.n_layer * P.n_expert;
+    $("#slots").max = max; $("#slotmax").textContent = fmt(max);
+    if (P.n_expert !== A.n_expert) alert(`${P.name} is a ${P.n_expert}-expert profile (a pruned model); the traces route over ${A.n_expert}.`);
+  }
+  draw();
+};
+addEventListener("resize", () => draw());
+
+(async () => {
+  const f = await api("/api/strata/files");
+  if (!f.traces.length) {
+    $("#wrap").innerHTML = `<div class="empty">No Strata routing traces in:<br>${f.dirs.join("<br>")}<br><br>
+      Make one with the engine's <code>--dump-routing FILE</code>, or pass <code>--strata-dir</code>.</div>`;
+    return;
+  }
+  for (const t of f.traces) {
+    $("#ta").add(new Option(`${t.name} (${t.mb} MB)`, t.name));
+    $("#tb").add(new Option(t.name, t.name));
+  }
+  for (const p of f.profiles) $("#prof").add(new Option(p.name, p.name));
+  await $("#ta").onchange();
+})();
+</script>
+</body>
+</html>
