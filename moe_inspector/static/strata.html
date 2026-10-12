@@ -89,6 +89,7 @@
     <div>
       <label class="f">Expert cache (VRAM)</label>
       <select id="prof"><option value="">no overlay</option></select>
+      <select id="prof2" style="margin-top:6px"><option value="">compare with another cache…</option></select>
       <div style="margin-top:8px">
         <input id="slots" type="range" min="0" max="24576" step="1" value="15764">
         <div class="row" style="justify-content:space-between">
@@ -135,7 +136,7 @@ const api = async p => { const r = await fetch(p); if (!r.ok) throw new Error((a
 const fmt = n => n.toLocaleString("en-US");
 
 let traces = {}, profiles = {};       // name -> loaded payload
-let A = null, B = null, P = null;     // current trace A, trace B, profile
+let A = null, B = null, P = null, P2 = null;   // trace A, trace B, cache profile, second cache profile
 let view = "a", order = "id";
 let range = null;                     // [start, end) positions of A, or null = all
 let playing = null;
@@ -178,10 +179,10 @@ function counts(t, s, e) {
 /* ----------------------------------------------------------- analysis */
 const cur = () => A ? (range ? counts(A, range[0], range[1]) : A.full) : null;
 
-function resident() {      // Uint8Array(L*E): 1 when the profile's first `slots` pairs hold it
-  if (!P) return null;
-  const n = +$("#slots").value, res = new Uint8Array(P.rank.length);
-  for (let i = 0; i < P.rank.length; i++) res[i] = P.rank[i] < n ? 1 : 0;
+function resident(prof = P) {      // Uint8Array(L*E): 1 when the profile's first `slots` pairs hold it
+  if (!prof) return null;
+  const n = +$("#slots").value, res = new Uint8Array(prof.rank.length);
+  for (let i = 0; i < prof.rank.length; i++) res[i] = prof.rank[i] < n ? 1 : 0;
   return res;
 }
 function hitRate(c, res) {
@@ -246,8 +247,53 @@ function permutation() {     // per layer: column -> expert
   return out;
 }
 
+/* cache vs cache: what each mode keeps in VRAM. Columns grouped per layer: in both, only in the
+   first, only in the second, in neither - each group in the first profile's rank order. */
+const C_BOTH = [70, 80, 106], C_ONE = [124, 156, 255], C_TWO = [255, 180, 84], C_NONE = [26, 31, 40];
+function drawCaches() {
+  layout();
+  const E = A.n_expert, L = A.n_layer, r1 = resident(P), r2 = resident(P2);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "11px ui-monospace, Menlo, monospace"; ctx.textBaseline = "middle";
+  perm = [];
+  const tot = [0, 0, 0, 0];
+  for (let l = 0; l < L; l++) {
+    const y = l * (ROW + GAP), grp = e => r1[l * E + e] && r2[l * E + e] ? 0 : r1[l * E + e] ? 1 : r2[l * E + e] ? 2 : 3;
+    const idx = [...Array(E).keys()].sort((a, b) => grp(a) - grp(b) || P.rank[l * E + a] - P.rank[l * E + b]);
+    perm.push(idx);
+    ctx.fillStyle = "#8b95a6"; ctx.fillText("L" + String(l).padStart(2, "0"), 4, y + ROW / 2);
+    let n1 = 0, both = 0;
+    idx.forEach((e, col) => {
+      const g = grp(e); tot[g]++; if (g < 2) n1++; if (g === 0) both++;
+      ctx.fillStyle = css([C_BOTH, C_ONE, C_TWO, C_NONE][g]);
+      ctx.fillRect(LBL + col * cellW, y, Math.max(1, cellW - (cellW > 3 ? 0.6 : 0)), ROW);
+    });
+    const bx = LBL + E * cellW + 12, share = n1 ? both / n1 : 0;
+    ctx.fillStyle = "#1d222b"; ctx.fillRect(bx, y + 1, BAR - 30, ROW - 2);
+    ctx.fillStyle = "#7c9cff"; ctx.fillRect(bx, y + 1, (BAR - 30) * share, ROW - 2);
+    ctx.fillStyle = "#8b95a6"; ctx.fillText((share * 100).toFixed(0) + "%", bx + BAR - 27, y + ROW / 2);
+  }
+  const sw = c => `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${css(c)}"></span>`;
+  $("#legend").innerHTML = `${sw(C_BOTH)} both ${sw(C_ONE)} only ${P.name} ${sw(C_TWO)} only ${P2.name} ${sw(C_NONE)} neither`;
+  $("#tbinfo").textContent = `right: share of ${P.name}'s slots in each layer that ${P2.name} also holds`;
+  const n = +$("#slots").value;
+  const lines = [`VRAM, ${fmt(n)} slots each`,
+    `in both: <b>${fmt(tot[0])}</b>`,
+    `only <span class="a">${P.name}</span>: <b>${fmt(tot[1])}</b>`,
+    `only <span class="b">${P2.name}</span>: <b>${fmt(tot[2])}</b>`,
+    `in neither: <b>${fmt(tot[3])}</b>`,
+    `a switch moves <b>${fmt(tot[1])}</b> experts (~${(tot[1] * 1.75 / 1024).toFixed(1)} GiB at 1.75 MB each)`];
+  if (A) {
+    const ca = cur();
+    lines.push(`<br><span class="a">A</span> <b>${A.name}</b> hits VRAM: ${(hitRate(ca, r1) * 100).toFixed(1)}% with ${P.name}, `
+      + `${(hitRate(ca, r2) * 100).toFixed(1)}% with ${P2.name}`);
+  }
+  $("#stats").innerHTML = lines.join("<br>");
+}
+
 function draw() {
   if (!A) return;
+  if (P && P2) return drawCaches();
   layout();
   const E = A.n_expert, L = A.n_layer, ca = cur(), res = resident();
   const cb = view === "ab" && B ? B.full : null;
@@ -343,6 +389,7 @@ document.addEventListener("mousemove", ev => {
   let body = `layer ${l} · expert ${e}\nA ${A.name}: ${(sa * 100).toFixed(2)}% of the layer (${fmt(ca[i])} routed)`;
   if (B) body += `\nB ${B.name}: ${(rowShares(B.full, l, E)[e] * 100).toFixed(2)}% (${fmt(B.full[i])})`;
   if (P) body += `\n${P.name} rank ${fmt(P.rank[i])}: ${P.rank[i] < +$("#slots").value ? "in VRAM" : "not cached"}`;
+  if (P2) body += `\n${P2.name} rank ${fmt(P2.rank[i])}: ${P2.rank[i] < +$("#slots").value ? "in VRAM" : "not cached"}`;
   body += `\nuniform share: ${(100 / E).toFixed(2)}%`;
   tip.textContent = body; tip.style.display = "block";
   tip.style.left = Math.min(ev.clientX + 14, innerWidth - 300) + "px"; tip.style.top = (ev.clientY + 16) + "px";
@@ -395,6 +442,11 @@ $("#prof").onchange = async () => {
   }
   draw();
 };
+$("#prof2").onchange = async () => {
+  P2 = await profile($("#prof2").value);
+  if (P2 && !P) { alert("Pick the first cache above too."); $("#prof2").value = ""; P2 = null; }
+  draw();
+};
 addEventListener("resize", () => draw());
 
 (async () => {
@@ -408,7 +460,7 @@ addEventListener("resize", () => draw());
     $("#ta").add(new Option(`${t.name} (${t.mb} MB)`, t.name));
     $("#tb").add(new Option(t.name, t.name));
   }
-  for (const p of f.profiles) $("#prof").add(new Option(p.name, p.name));
+  for (const p of f.profiles) { $("#prof").add(new Option(p.name, p.name)); $("#prof2").add(new Option(p.name, p.name)); }
   await $("#ta").onchange();
 })();
 </script>

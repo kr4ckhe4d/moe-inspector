@@ -94,7 +94,17 @@ VRAM. The page predicts 53.8% hits; Strata measured 51.3% for the same setup
 - **Expert cache**: pick a profile and a slot count (presets for a 9070 XT,
   an R9700 and both cards). Experts outside the cache dim, the routed ones turn
   red, and the right-hand bar is each layer's predicted VRAM hit rate.
+- **Cache vs cache**: pick a second profile under the first. Each layer's experts
+  are grouped by where they live: in both caches, only one, or neither, with
+  the share both hold on the right.
 - **Playback**: a sliding window of positions through trace A.
+
+![What each mode keeps in VRAM: code against writing, 15,764 slots each](docs/strata-caches.png)
+
+*Code mode against writing mode at an R9700's 15,764 slots: 10,700 experts are
+in both, 5,064 are each mode's own (a switch moves those, ~8.7 GiB), 3,748 are
+in neither. The modes split most in layers 15-16 and 31-32 (~40% shared),
+the same layers where code and prose routing diverge most.*
 
 Traces and profiles are found in `/mnt/fast/strata-exp`,
 `~/code/local-llm-benchmarks/benchmarks/strata-expert-modes` and
